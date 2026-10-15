@@ -767,6 +767,85 @@ HRESULT Resolve3DLutParameters(UINT edgeLength, Lut3DParameters& resolved)
     }
 }
 
+// Spells out a flags value as "FLAG_A | FLAG_B", for logging what the driver reported.
+// Bits that aren't in the table are appended in hex rather than silently dropped.
+struct FlagName
+{
+    UINT value;
+    const wchar_t* name;
+};
+
+#define FLAG_NAME(flag) { static_cast<UINT>(flag), L#flag }
+
+template <std::size_t N>
+std::wstring FlagsToString(UINT flags, const FlagName (&names)[N], const wchar_t* noneName)
+{
+    if (flags == 0)
+    {
+        return noneName;
+    }
+
+    std::wostringstream text;
+    UINT remaining = flags;
+    for (const FlagName& entry : names)
+    {
+        if (entry.value != 0 && (flags & entry.value) == entry.value)
+        {
+            if (remaining != flags)
+            {
+                text << L" | ";
+            }
+            text << entry.name;
+            remaining &= ~entry.value;
+        }
+    }
+
+    if (remaining != 0)
+    {
+        if (remaining != flags)
+        {
+            text << L" | ";
+        }
+        text << L"0x" << std::hex << remaining;
+    }
+    return text.str();
+}
+
+std::wstring LutSupportFlagsToString(D3D12_VIDEO_PROCESS_LUT_SUPPORT_FLAGS flags)
+{
+    static const FlagName names[] = {
+        FLAG_NAME(D3D12_VIDEO_PROCESS_LUT_SUPPORT_FLAG_SUPPORTED),
+        FLAG_NAME(D3D12_VIDEO_PROCESS_LUT_SUPPORT_FLAG_1DLUT_SPACING_CURVE),
+        FLAG_NAME(D3D12_VIDEO_PROCESS_LUT_SUPPORT_FLAG_1DLUT_NON_MONOTONICALLY_INCREASING_CURVE),
+    };
+    return FlagsToString(static_cast<UINT>(flags), names,
+                         L"D3D12_VIDEO_PROCESS_LUT_SUPPORT_FLAG_NONE");
+}
+
+std::wstring Lut3DDimensionFlagsToString(D3D12_VIDEO_PROCESS_3DLUT_TABLE_DIMENSION_SUPPORT_FLAGS flags)
+{
+    static const FlagName names[] = {
+        FLAG_NAME(D3D12_VIDEO_PROCESS_3DLUT_TABLE_DIMENSION_SUPPORT_FLAG_17x17x17),
+        FLAG_NAME(D3D12_VIDEO_PROCESS_3DLUT_TABLE_DIMENSION_SUPPORT_FLAG_33x33x33),
+        FLAG_NAME(D3D12_VIDEO_PROCESS_3DLUT_TABLE_DIMENSION_SUPPORT_FLAG_45x45x45),
+        FLAG_NAME(D3D12_VIDEO_PROCESS_3DLUT_TABLE_DIMENSION_SUPPORT_FLAG_65x65x65),
+    };
+    return FlagsToString(static_cast<UINT>(flags), names,
+                         L"D3D12_VIDEO_PROCESS_3DLUT_TABLE_DIMENSION_SUPPORT_FLAG_NONE");
+}
+
+std::wstring Lut3DInterpolationFlagsToString(D3D12_VIDEO_PROCESS_3DLUT_INTERPOLATION_MODE_SUPPORT_FLAGS flags)
+{
+    static const FlagName names[] = {
+        FLAG_NAME(D3D12_VIDEO_PROCESS_3DLUT_INTERPOLATION_MODE_SUPPORT_FLAG_TRILINEAR),
+        FLAG_NAME(D3D12_VIDEO_PROCESS_3DLUT_INTERPOLATION_MODE_SUPPORT_FLAG_TETRAHEDRAL),
+    };
+    return FlagsToString(static_cast<UINT>(flags), names,
+                         L"D3D12_VIDEO_PROCESS_3DLUT_INTERPOLATION_MODE_SUPPORT_FLAG_NONE");
+}
+
+#undef FLAG_NAME
+
 HRESULT CheckVideoProcessSupport(ID3D12VideoDevice5* videoDevice,
                                  const Options& options,
                                  const Lut3DParameters& lut3d)
@@ -792,6 +871,18 @@ HRESULT CheckVideoProcessSupport(ID3D12VideoDevice5* videoDevice,
 
     RETURN_IF_FAILED(videoDevice->CheckFeatureSupport(D3D12_FEATURE_VIDEO_PROCESS_SUPPORT1,
                                                       &support, sizeof(support)));
+
+    // Dump what the driver reported, so a failed check below can be diagnosed.
+    std::wcout << L"LUT support reported by the adapter:\n"
+               << L"  SupportLUT.Flags                   = "
+               << LutSupportFlagsToString(support.SupportLUT.Flags) << L"\n"
+               << L"  SupportLUT.Native1DLUTSize         = " << std::dec
+               << support.SupportLUT.Native1DLUTSize << L"\n"
+               << L"  SupportLUT.Dimension3DLUTFlags     = "
+               << Lut3DDimensionFlagsToString(support.SupportLUT.Dimension3DLUTFlags) << L"\n"
+               << L"  SupportLUT.Interpolation3DLUTFlags = "
+               << Lut3DInterpolationFlagsToString(support.SupportLUT.Interpolation3DLUTFlags)
+               << L"\n";
 
     if ((support.SupportFlags & D3D12_VIDEO_PROCESS_SUPPORT_FLAG_SUPPORTED) == 0)
     {

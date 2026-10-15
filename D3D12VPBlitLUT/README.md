@@ -38,7 +38,7 @@ sections that follow the order the work happens in.
 * **CMake 3.20** or newer.
 * A **C++14** compiler: MSVC (Visual Studio 2019 or newer) or Clang. The Windows SDK
   supplies `d3d12.lib` and `dxgi.lib`.
-* **D3D12 Agility SDK 1.620** — downloaded and wired up automatically, or taken from a
+* **D3D12 Agility SDK 1.620 or newer** — downloaded and wired up automatically, or taken from a
   local copy; see below.
 * Internet access on the first configure, if the SDK is downloaded.
 * Optional: the **Graphics Tools** optional Windows feature, for the D3D12 debug layer.
@@ -47,8 +47,11 @@ sections that follow the order the work happens in.
 
 The LUT Compound API is introduced in the Agility SDK v1.620.  `CMakeLists.txt` handles this dependency:
 
-* Downloads `Microsoft.Direct3D.D3D12` `1.620.0` from NuGet at configure time (optionally
-  verifying its SHA-256), unless `AGILITY_SDK_ROOT` points at a local copy,
+* Downloads the newest stable (non-preview) `Microsoft.Direct3D.D3D12` release that is
+  `1.620.0` or newer from NuGet at configure time, unless `AGILITY_SDK_VERSION` pins a
+  specific release or `AGILITY_SDK_ROOT` points at a local copy. The chosen version is
+  remembered for the build tree; configure with `cmake --fresh` (or use a new build
+  directory) to pick up a newer release,
 * Puts its headers ahead of the Windows SDK headers on the include path,
 * Copies `D3D12Core.dll` and `d3d12SDKLayers.dll` into a `D3D12` subfolder next to the
   built executable.
@@ -62,7 +65,7 @@ extern "C" { __declspec(dllexport) extern const char* D3D12SDKPath = u8".\\D3D12
 
 `D3D12_SDK_VERSION` comes from the Agility SDK's own `d3d12.h`, so the exported version
 always matches the headers the sample was compiled against. It must also match the
-`D3D12Core.dll` that gets staged, which must report version 620. A preview runtime
+`D3D12Core.dll` that gets staged, which comes from the same package. A preview runtime
 reports `D3D12_PREVIEW_SDK_VERSION` instead, and device creation then fails with
 `D3D12_ERROR_INVALID_REDIST` (`0x887E0003`).
 
@@ -72,7 +75,8 @@ To build against an SDK you already have already downloaded, point `AGILITY_SDK_
 cmake -S . -B build -DAGILITY_SDK_ROOT=C:/path/to/Microsoft.Direct3D.D3D12.1.620.0
 ```
 
-To download a different release instead, override the version:
+To pin a specific release instead of the newest one, set the version (optionally with
+`AGILITY_SDK_SHA256` to verify the download):
 
 ```
 cmake -S . -B build -DAGILITY_SDK_VERSION=1.620.1
@@ -94,8 +98,8 @@ Useful CMake options:
 | Option | Default | Effect |
 | ------ | ------- | ------ |
 | `D3D12VPBLITLUT_WARNINGS_AS_ERRORS` | `OFF` | `/WX` on MSVC, `-Werror` on Clang. |
-| `AGILITY_SDK_VERSION` | `1.620.0` | NuGet package version to download. |
-| `AGILITY_SDK_SHA256` | empty | Expected package hash; empty skips verification. |
+| `AGILITY_SDK_VERSION` | empty | NuGet package version to download; empty picks the newest stable release >= `1.620.0`. |
+| `AGILITY_SDK_SHA256` | empty | Expected package hash; empty skips verification. Requires `AGILITY_SDK_VERSION`. |
 | `AGILITY_SDK_ROOT` | empty | Use an already extracted SDK instead of downloading. |
 
 The build is warning-clean with MSVC `/W4` and with Clang

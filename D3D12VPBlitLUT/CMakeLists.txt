@@ -1,10 +1,9 @@
 #=======================================================================================
 # D3D12VPBlitLUT
 #
-# Builds the sample and takes care of the DirectX 12 Agility SDK dependency: the 1.620
-# NuGet package is downloaded at configure time (or taken from AGILITY_SDK_ROOT), its
-# headers are placed ahead of the
-# Windows SDK headers, and D3D12Core.dll / d3d12SDKLayers.dll are staged into the
+# Builds the sample and takes care of the DirectX 12 Agility SDK dependency: the newest
+# NuGet release >= 1.620 is downloaded at configure time (or taken from
+# AGILITY_SDK_ROOT), its headers are placed ahead of the Windows SDK headers, and D3D12Core.dll / d3d12SDKLayers.dll are staged into the
 # "D3D12" subfolder next to the executable, where the loader expects them.
 #
 #   cmake -S . -B build
@@ -27,31 +26,100 @@ endif()
 #---------------------------------------------------------------------------------------
 # DirectX 12 Agility SDK
 #
-# The LUT Compound API this sample uses was introduced in Agility SDK 1.620, so the
-# version is pinned rather than "whatever the Windows SDK happens to ship". The sample
-# exports D3D12_SDK_VERSION, so the package's D3D12Core.dll must report that same
-# version (620). A preview runtime reports D3D12_PREVIEW_SDK_VERSION instead, and device
-# creation then fails with D3D12_ERROR_INVALID_REDIST.
+# The LUT Compound API this sample uses was introduced in Agility SDK 1.620, so that is
+# the minimum version. By default the newest stable (non-preview) release on NuGet that
+# is at least AGILITY_SDK_MIN_VERSION is used; the choice is made once per build tree
+# and remembered in the cache, so reconfiguring doesn't go back to the network. Use
+# `cmake --fresh` (or a new build directory) to pick up a newer release.
 #
-# Set AGILITY_SDK_ROOT to an extracted package to skip the download entirely. Otherwise
-# AGILITY_SDK_VERSION is fetched from NuGet; set AGILITY_SDK_SHA256 to the package hash
-# (printed by `cmake -E sha256sum`) to verify it.
+# Preview packages are skipped on purpose: the sample exports D3D12_SDK_VERSION, so the
+# package's D3D12Core.dll must report that same version. A preview runtime reports
+# D3D12_PREVIEW_SDK_VERSION instead, and device creation then fails with
+# D3D12_ERROR_INVALID_REDIST.
+#
+# Set AGILITY_SDK_VERSION to pin an exact release, or AGILITY_SDK_ROOT to an extracted
+# package to skip the download entirely. AGILITY_SDK_SHA256 (printed by
+# `cmake -E sha256sum`) verifies the download, and needs a pinned AGILITY_SDK_VERSION.
 #---------------------------------------------------------------------------------------
 
-set(AGILITY_SDK_VERSION "1.620.0" CACHE STRING
-    "Microsoft.Direct3D.D3D12 NuGet package version to build against")
+set(AGILITY_SDK_MIN_VERSION "1.620.0")
+
+set(AGILITY_SDK_VERSION "" CACHE STRING
+    "Microsoft.Direct3D.D3D12 NuGet package version to build against; leave empty for the newest release >= ${AGILITY_SDK_MIN_VERSION}")
 set(AGILITY_SDK_SHA256 "" CACHE STRING
     "SHA-256 of the Agility SDK package; leave empty to skip verification")
 set(AGILITY_SDK_ROOT "" CACHE PATH
-    "Root of an extracted Agility SDK package; leave empty to download AGILITY_SDK_VERSION")
+    "Root of an extracted Agility SDK package; leave empty to download from NuGet")
+
+# Picks the newest stable package version >= AGILITY_SDK_MIN_VERSION from the NuGet
+# index. Falls back to the minimum version if the index can't be fetched or parsed.
+function(agility_sdk_resolve_latest out_var)
+    set(index_url "https://api.nuget.org/v3-flatcontainer/microsoft.direct3d.d3d12/index.json")
+    set(index_file "${CMAKE_BINARY_DIR}/agility-sdk/index.json")
+    set(best "")
+
+    file(DOWNLOAD "${index_url}" "${index_file}" STATUS index_status)
+    list(GET index_status 0 index_code)
+    if(index_code EQUAL 0)
+        file(READ "${index_file}" index_json)
+        string(JSON version_count ERROR_VARIABLE json_error LENGTH "${index_json}" versions)
+        if(NOT json_error AND version_count GREATER 0)
+            math(EXPR last_index "${version_count} - 1")
+            foreach(i RANGE ${last_index})
+                string(JSON candidate GET "${index_json}" versions ${i})
+                # Stable releases only; anything with a suffix (-preview, -rc, ...) is skipped.
+                if(NOT candidate MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+                    continue()
+                endif()
+                if(candidate VERSION_LESS AGILITY_SDK_MIN_VERSION)
+                    continue()
+                endif()
+                if(NOT best OR candidate VERSION_GREATER best)
+                    set(best "${candidate}")
+                endif()
+            endforeach()
+        endif()
+    endif()
+
+    if(best)
+        set(AGILITY_SDK_RESOLVED_VERSION "${best}" CACHE INTERNAL
+            "Agility SDK version picked from NuGet for this build tree")
+    else()
+        message(WARNING
+            "Could not determine the latest Agility SDK release from ${index_url}; "
+            "falling back to ${AGILITY_SDK_MIN_VERSION}.")
+        set(best "${AGILITY_SDK_MIN_VERSION}")
+    endif()
+    set(${out_var} "${best}" PARENT_SCOPE)
+endfunction()
 
 if(NOT AGILITY_SDK_ROOT)
-    set(agility_dir "${CMAKE_BINARY_DIR}/agility-sdk/${AGILITY_SDK_VERSION}")
-    set(agility_archive "${CMAKE_BINARY_DIR}/agility-sdk/Microsoft.Direct3D.D3D12.${AGILITY_SDK_VERSION}.zip")
-    set(agility_url "https://www.nuget.org/api/v2/package/Microsoft.Direct3D.D3D12/${AGILITY_SDK_VERSION}")
+    if(AGILITY_SDK_VERSION)
+        if(AGILITY_SDK_VERSION VERSION_LESS AGILITY_SDK_MIN_VERSION)
+            message(FATAL_ERROR
+                "AGILITY_SDK_VERSION ${AGILITY_SDK_VERSION} is too old; the LUT Compound API "
+                "needs Agility SDK ${AGILITY_SDK_MIN_VERSION} or newer.")
+        endif()
+        set(agility_version "${AGILITY_SDK_VERSION}")
+    else()
+        if(AGILITY_SDK_SHA256)
+            message(FATAL_ERROR
+                "AGILITY_SDK_SHA256 only makes sense for a known package; set "
+                "AGILITY_SDK_VERSION to the release the hash belongs to.")
+        endif()
+        if(AGILITY_SDK_RESOLVED_VERSION)
+            set(agility_version "${AGILITY_SDK_RESOLVED_VERSION}")
+        else()
+            agility_sdk_resolve_latest(agility_version)
+        endif()
+    endif()
+
+    set(agility_dir "${CMAKE_BINARY_DIR}/agility-sdk/${agility_version}")
+    set(agility_archive "${CMAKE_BINARY_DIR}/agility-sdk/Microsoft.Direct3D.D3D12.${agility_version}.zip")
+    set(agility_url "https://www.nuget.org/api/v2/package/Microsoft.Direct3D.D3D12/${agility_version}")
 
     if(NOT EXISTS "${agility_dir}/build/native/include/d3d12video.h")
-        message(STATUS "Downloading DirectX 12 Agility SDK ${AGILITY_SDK_VERSION}")
+        message(STATUS "Downloading DirectX 12 Agility SDK ${agility_version}")
 
         set(download_args "${agility_url}" "${agility_archive}" STATUS download_status)
         if(AGILITY_SDK_SHA256)
