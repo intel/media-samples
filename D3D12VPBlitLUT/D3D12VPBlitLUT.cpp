@@ -180,19 +180,19 @@ constexpr UINT64 kOutputFrameBytes =
 //   O_y = sum(x = 0..2) M[x][y] * I_x + M[3][y]
 // x is the input channel (Y, Cb, Cr), y the output channel (R, G, B) and row 3 the
 // post-offset, all normalized to [0, 1].
-constexpr float kYCoeff  = 1.16893005371093750f;   // 255 / 219
-constexpr float kCrToR   = 1.68522644042968750f;
-constexpr float kCbToG   = -0.188064575195312f;
-constexpr float kCrToG   = -0.65296936035156250f;
-constexpr float kCbToB   = 2.150131225590000f;
+//
+// Limited-range input carries Y with a 16 and Cb/Cr with a 128 (8-bit code value)
+// offset. Removing them before the matrix and folding that through it gives the
+// post-offset, normalized by 255:
+//   M[3][y] = -(16 * M[0][y] + 128 * M[1][y] + 128 * M[2][y]) / 255
+//   R: -(16 * 1.16893 + 128 * 1.68523)               / 255 = -0.91926
+//   G: -(16 * 1.16893 - 128 * 0.18806 - 128 * 0.65297) / 255 =  0.34882
+//   B: -(16 * 1.16893 + 128 * 2.15013)               / 255 = -1.15263
 constexpr float kBt2020YuvToRgbMatrix[4][3] = {
-    { kYCoeff, kYCoeff, kYCoeff },   // x = 0: Y
-    { 0.0f,    kCbToG,  kCbToB  },   // x = 1: Cb
-    { kCrToR,  kCrToG,  0.0f    },   // x = 2: Cr
-    // x = 3: post-offsets, i.e. the Y - 16 / C - 128 (8-bit code values) removal folded through the matrix
-    { -(kYCoeff * 16.0f + kCrToR * 128.0f) / 255.0f,
-      -(kYCoeff * 16.0f + (kCbToG + kCrToG) * 128.0f) / 255.0f,
-      -(kYCoeff * 16.0f + kCbToB * 128.0f) / 255.0f },
+    {   1.16893005371093750f,   1.16893005371093750f,   1.16893005371093750f },  // Y
+    {   0.00000000000000000f,  -0.188064575195312f,     2.150131225590000f   },  // Cb
+    {   1.68522644042968750f,  -0.65296936035156250f,   0.00000000000000000f },  // Cr
+    {  -0.91926223039627075f,   0.34882143139839172f,  -1.15262615680694580f },  // post-offset
 };
 
 // Sentinel for "pick the first hardware adapter".
