@@ -176,12 +176,23 @@ constexpr UINT64 kOutputFrameBytes =
     static_cast<UINT64>(kOutputStreamWidth) * kOutputStreamHeight +       // Y
     static_cast<UINT64>(kOutputStreamWidth) * kOutputStreamHeight / 2;    // UV
 
-// BT.2020 limited-range YCbCr to RGB.
+// BT.2020 limited-range YCbCr to RGB, laid out as the D3D12 spec defines pCSCMatrix:
+//   O_y = sum(x = 0..2) M[x][y] * I_x + M[3][y]
+// x is the input channel (Y, Cb, Cr), y the output channel (R, G, B) and row 3 the
+// post-offset, all normalized to [0, 1].
+constexpr float kYCoeff  = 1.16893005371093750f;   // 255 / 219
+constexpr float kCrToR   = 1.68522644042968750f;
+constexpr float kCbToG   = -0.188064575195312f;
+constexpr float kCrToG   = -0.65296936035156250f;
+constexpr float kCbToB   = 2.150131225590000f;
 constexpr float kBt2020YuvToRgbMatrix[4][3] = {
-    {   1.16893005371093750f,   0.000000000000000f,   1.68522644042968750f },
-    {   1.16893005371093750f,  -0.188064575195312f,  -0.65296936035156250f },
-    {   1.16893005371093750f,   2.150131225590000f,   0.00000000000000000f },
-    { -16.000000000000000000f, -128.000000000000f, -128.00000000000000000f },
+    { kYCoeff, kYCoeff, kYCoeff },   // x = 0: Y
+    { 0.0f,    kCbToG,  kCbToB  },   // x = 1: Cb
+    { kCrToR,  kCrToG,  0.0f    },   // x = 2: Cr
+    // x = 3: post-offsets, i.e. the Y - 16 / C - 128 (8-bit code values) removal folded through the matrix
+    { -(kYCoeff * 16.0f + kCrToR * 128.0f) / 255.0f,
+      -(kYCoeff * 16.0f + (kCbToG + kCrToG) * 128.0f) / 255.0f,
+      -(kYCoeff * 16.0f + kCbToB * 128.0f) / 255.0f },
 };
 
 // Sentinel for "pick the first hardware adapter".
