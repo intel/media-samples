@@ -176,12 +176,20 @@ constexpr UINT64 kOutputFrameBytes =
     static_cast<UINT64>(kOutputStreamWidth) * kOutputStreamHeight +       // Y
     static_cast<UINT64>(kOutputStreamWidth) * kOutputStreamHeight / 2;    // UV
 
-// BT.2020 limited-range YCbCr to RGB.
+// BT.2020 limited-range YCbCr to RGB, laid out as the D3D12 spec defines pCSCMatrix:
+//   O_y = sum(x = 0..2) M[x][y] * I_x + M[3][y]
+// x is the input channel (I_R, I_G, I_B), y the output channel (R, G, B) and row 3 the
+// post-offset, all normalized (1.0 = full scale). The spec maps upsampled YUV input as
+// V -> R, U -> G, Y -> B, so for P010 the input rows are in (Cr, Cb, Y) order.
+//
+// Limited-range input carries Y and Cb/Cr offset.
+// Removing them before the matrix and folding that through it gives the
+// post-offset, and normalized:
 constexpr float kBt2020YuvToRgbMatrix[4][3] = {
-    {   1.16893005371093750f,   0.000000000000000f,   1.68522644042968750f },
-    {   1.16893005371093750f,  -0.188064575195312f,  -0.65296936035156250f },
-    {   1.16893005371093750f,   2.150131225590000f,   0.00000000000000000f },
-    { -16.000000000000000000f, -128.000000000000f, -128.00000000000000000f },
+    {   1.68522644042968750f,  -0.65296936035156250f,   0.00000000000000000f },  // Cr (I_R)
+    {   0.00000000000000000f,  -0.188064575195312f,     2.150131225590000f   },  // Cb (I_G)
+    {   1.16893005371093750f,   1.16893005371093750f,   1.16893005371093750f },  // Y  (I_B)
+    {  -0.91567136230878530f,   0.34745884768199176f,  -1.14812371088191870f },  // post-offset
 };
 
 // Sentinel for "pick the first hardware adapter".
