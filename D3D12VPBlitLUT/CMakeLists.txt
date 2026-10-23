@@ -1,8 +1,8 @@
 #=======================================================================================
 # D3D12VPBlitLUT
 #
-# Builds the sample and takes care of the DirectX 12 Agility SDK dependency: the newest
-# NuGet release >= 1.620 is downloaded at configure time (or taken from
+# Builds the sample and takes care of the DirectX 12 Agility SDK dependency: a pinned,
+# hash-checked NuGet release is downloaded at configure time (or taken from
 # AGILITY_SDK_ROOT), its headers are placed ahead of the Windows SDK headers, and D3D12Core.dll / d3d12SDKLayers.dll are staged into the
 # "D3D12" subfolder next to the executable, where the loader expects them.
 #
@@ -27,27 +27,35 @@ endif()
 # DirectX 12 Agility SDK
 #
 # The LUT Compound API this sample uses was introduced in Agility SDK 1.620, so that is
-# the minimum version. By default the newest stable (non-preview) release on NuGet that
-# is at least AGILITY_SDK_MIN_VERSION is used; the choice is made once per build tree
-# and remembered in the cache, so reconfiguring doesn't go back to the network. Use
-# `cmake --fresh` (or a new build directory) to pick up a newer release.
+# the minimum version. By default the sample builds against the release pinned below,
+# and the download is checked against its SHA-256: the package's D3D12Core.dll runs
+# inside the sample's process. To move to a newer SDK, update both values together.
 #
-# Preview packages are skipped on purpose: the sample exports D3D12_SDK_VERSION, so the
-# package's D3D12Core.dll must report that same version. A preview runtime reports
-# D3D12_PREVIEW_SDK_VERSION instead, and device creation then fails with
+# Set AGILITY_SDK_VERSION to build against a different release (with AGILITY_SDK_SHA256
+# to verify it), or to "latest" for the newest stable (non-preview) release on NuGet that
+# is at least AGILITY_SDK_MIN_VERSION. "latest" is resolved once per build tree and
+# remembered in the cache; use `cmake --fresh` (or a new build directory) to re-resolve.
+# Set AGILITY_SDK_ROOT to an extracted package to skip the download entirely.
+#
+# Preview packages are never picked by "latest": the sample exports D3D12_SDK_VERSION,
+# so the package's D3D12Core.dll must report that same version. A preview runtime
+# reports D3D12_PREVIEW_SDK_VERSION instead, and device creation then fails with
 # D3D12_ERROR_INVALID_REDIST.
 #
-# Set AGILITY_SDK_VERSION to pin an exact release, or AGILITY_SDK_ROOT to an extracted
-# package to skip the download entirely. AGILITY_SDK_SHA256 (printed by
-# `cmake -E sha256sum`) verifies the download, and needs a pinned AGILITY_SDK_VERSION.
+# Downloads always verify the server's TLS certificate (the default only became ON in
+# CMake 3.31). A download without a known hash prints the version and SHA-256 to pin.
 #---------------------------------------------------------------------------------------
 
 set(AGILITY_SDK_MIN_VERSION "1.620.0")
 
-set(AGILITY_SDK_VERSION "" CACHE STRING
-    "Microsoft.Direct3D.D3D12 NuGet package version to build against; leave empty for the newest release >= ${AGILITY_SDK_MIN_VERSION}")
+# The pinned default. Get the hash with `cmake -E sha256sum` on the downloaded package.
+set(AGILITY_SDK_DEFAULT_VERSION "1.620.0")
+set(AGILITY_SDK_DEFAULT_SHA256 "")  # TODO: fill in once 1.620.0 is published on NuGet.
+
+set(AGILITY_SDK_VERSION "${AGILITY_SDK_DEFAULT_VERSION}" CACHE STRING
+    "Microsoft.Direct3D.D3D12 NuGet package version to build against, or \"latest\" for the newest stable release >= ${AGILITY_SDK_MIN_VERSION}")
 set(AGILITY_SDK_SHA256 "" CACHE STRING
-    "SHA-256 of the Agility SDK package; leave empty to skip verification")
+    "SHA-256 of the Agility SDK package; leave empty to use the built-in hash of the default version")
 set(AGILITY_SDK_ROOT "" CACHE PATH
     "Root of an extracted Agility SDK package; leave empty to download from NuGet")
 
@@ -58,7 +66,7 @@ function(agility_sdk_resolve_latest out_var)
     set(index_file "${CMAKE_BINARY_DIR}/agility-sdk/index.json")
     set(best "")
 
-    file(DOWNLOAD "${index_url}" "${index_file}" STATUS index_status)
+    file(DOWNLOAD "${index_url}" "${index_file}" TLS_VERIFY ON STATUS index_status)
     list(GET index_status 0 index_code)
     if(index_code EQUAL 0)
         file(READ "${index_file}" index_json)
@@ -94,14 +102,12 @@ function(agility_sdk_resolve_latest out_var)
 endfunction()
 
 if(NOT AGILITY_SDK_ROOT)
-    if(AGILITY_SDK_VERSION)
-        if(AGILITY_SDK_VERSION VERSION_LESS AGILITY_SDK_MIN_VERSION)
-            message(FATAL_ERROR
-                "AGILITY_SDK_VERSION ${AGILITY_SDK_VERSION} is too old; the LUT Compound API "
-                "needs Agility SDK ${AGILITY_SDK_MIN_VERSION} or newer.")
-        endif()
-        set(agility_version "${AGILITY_SDK_VERSION}")
-    else()
+    # Build trees configured before the default was pinned have an empty version cached.
+    if(NOT AGILITY_SDK_VERSION)
+        set(AGILITY_SDK_VERSION "${AGILITY_SDK_DEFAULT_VERSION}")
+    endif()
+
+    if(AGILITY_SDK_VERSION STREQUAL "latest")
         if(AGILITY_SDK_SHA256)
             message(FATAL_ERROR
                 "AGILITY_SDK_SHA256 only makes sense for a known package; set "
@@ -112,6 +118,27 @@ if(NOT AGILITY_SDK_ROOT)
         else()
             agility_sdk_resolve_latest(agility_version)
         endif()
+    else()
+        if(NOT AGILITY_SDK_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$")
+            message(FATAL_ERROR
+                "AGILITY_SDK_VERSION \"${AGILITY_SDK_VERSION}\" is not a NuGet version or \"latest\".")
+        endif()
+        if(AGILITY_SDK_VERSION VERSION_LESS AGILITY_SDK_MIN_VERSION)
+            message(FATAL_ERROR
+                "AGILITY_SDK_VERSION ${AGILITY_SDK_VERSION} is too old; the LUT Compound API "
+                "needs Agility SDK ${AGILITY_SDK_MIN_VERSION} or newer.")
+        endif()
+        set(agility_version "${AGILITY_SDK_VERSION}")
+    endif()
+
+    # An explicit hash wins; otherwise the built-in hash applies, but only to the release
+    # it was taken from.
+    if(AGILITY_SDK_SHA256)
+        set(agility_sha256 "${AGILITY_SDK_SHA256}")
+    elseif(agility_version STREQUAL AGILITY_SDK_DEFAULT_VERSION)
+        set(agility_sha256 "${AGILITY_SDK_DEFAULT_SHA256}")
+    else()
+        set(agility_sha256 "")
     endif()
 
     set(agility_dir "${CMAKE_BINARY_DIR}/agility-sdk/${agility_version}")
@@ -121,22 +148,29 @@ if(NOT AGILITY_SDK_ROOT)
     if(NOT EXISTS "${agility_dir}/build/native/include/d3d12video.h")
         message(STATUS "Downloading DirectX 12 Agility SDK ${agility_version}")
 
-        set(download_args "${agility_url}" "${agility_archive}" STATUS download_status)
-        if(AGILITY_SDK_SHA256)
-            list(APPEND download_args EXPECTED_HASH "SHA256=${AGILITY_SDK_SHA256}")
+        set(download_args "${agility_url}" "${agility_archive}" TLS_VERIFY ON STATUS download_status)
+        if(agility_sha256)
+            list(APPEND download_args EXPECTED_HASH "SHA256=${agility_sha256}")
         endif()
         file(DOWNLOAD ${download_args})
 
         list(GET download_status 0 download_code)
         if(NOT download_code EQUAL 0)
             list(GET download_status 1 download_message)
+            file(REMOVE "${agility_archive}")
             message(FATAL_ERROR
-                "Failed to download the Agility SDK from ${agility_url}
-"
-                "  ${download_message}
-"
+                "Failed to download the Agility SDK from ${agility_url}\n"
+                "  ${download_message}\n"
                 "If the package is not on NuGet yet, or this machine has no internet access, "
                 "extract the package manually and point AGILITY_SDK_ROOT at the extracted folder.")
+        endif()
+
+        if(NOT agility_sha256)
+            file(SHA256 "${agility_archive}" downloaded_sha256)
+            message(WARNING
+                "The Agility SDK package was downloaded without a hash check; its DLLs are "
+                "loaded into the sample's process. To verify future downloads, reconfigure with\n"
+                "  -DAGILITY_SDK_VERSION=${agility_version} -DAGILITY_SDK_SHA256=${downloaded_sha256}")
         endif()
 
         file(ARCHIVE_EXTRACT INPUT "${agility_archive}" DESTINATION "${agility_dir}")
@@ -203,6 +237,16 @@ target_include_directories(D3D12VPBlitLUT BEFORE PRIVATE "${agility_include}")
 # headers and the runtime DLLs come from the Agility SDK. shell32 is for
 # CommandLineToArgvW.
 target_link_libraries(D3D12VPBlitLUT PRIVATE d3d12 dxgi shell32)
+
+# The D3D12SDKVersion / D3D12SDKPath exports make the linker treat the .exe like a DLL
+# and emit an import library and .exp file that nothing links against; suppress them.
+# lld-link never writes an .exp file and warns on /NOEXP, so that one is link.exe only.
+if(MSVC)
+    target_link_options(D3D12VPBlitLUT PRIVATE /NOIMPLIB)
+    if(NOT CMAKE_LINKER MATCHES "lld-link")
+        target_link_options(D3D12VPBlitLUT PRIVATE /NOEXP)
+    endif()
+endif()
 
 target_compile_definitions(D3D12VPBlitLUT PRIVATE
     UNICODE _UNICODE            # the sample is UTF-16 throughout; don't leave it to chance

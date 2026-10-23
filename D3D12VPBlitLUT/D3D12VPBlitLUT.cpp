@@ -31,13 +31,14 @@
 #include <d3d12.h>
 #include <d3d12sdklayers.h>
 #include <d3d12video.h>
-#include <dxgi1_6.h>
-#include <dxgiformat.h>
+#include <dxgi1_4.h>
 #include <shellapi.h>
 #include <wrl/client.h>
 
 // C and C++ standard library.
 #include <algorithm>
+#include <cerrno>
+#include <climits>
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
@@ -58,10 +59,8 @@
 // https://devblogs.microsoft.com/directx/gettingstarted-dx12agility/#2.-set-agility-sdk-parameters
 //
 // The dependency is deliberately hard-coded: the LUT Compound API is not in the system
-// D3D12 runtime, so there is no useful fallback. This build targets the 1.62 release
-// candidate, whose D3D12Core.dll reports D3D12_SDK_VERSION (620). Do not use
-// D3D12_PREVIEW_SDK_VERSION here: in the 1.62 headers that is 721, which does not match
-// the RC D3D12Core.dll, and device creation fails with D3D12_ERROR_INVALID_REDIST.
+// D3D12 runtime, so there is no useful fallback. This build targets the 1.62 release,
+// whose D3D12Core.dll reports D3D12_SDK_VERSION (620). 
 //
 // CMake stages the matching D3D12Core.dll and d3d12SDKLayers.dll into .\D3D12\ as a
 // post-build step. The trailing backslash in D3D12SDKPath is required.
@@ -351,7 +350,9 @@ void CopyRows(BYTE* destination,
 // 4. File I/O
 //---------------------------------------------------------------------------------------
 
-HRESULT ReadWholeFile(const std::wstring& path, std::vector<BYTE>& contents)
+// Reads a file that must be exactly expectedBytes long. The size is checked before
+// anything is allocated, so an oversized or unseekable file is rejected up front.
+HRESULT ReadWholeFile(const std::wstring& path, UINT64 expectedBytes, std::vector<BYTE>& contents)
 {
     std::ifstream file(path, std::ios::binary | std::ios::ate);
     if (!file.is_open())
@@ -361,6 +362,19 @@ HRESULT ReadWholeFile(const std::wstring& path, std::vector<BYTE>& contents)
     }
 
     const std::streamsize size = file.tellg();
+    if (size < 0)
+    {
+        std::wcerr << L"Failed to get the size of " << path << L"\n";
+        return E_FAIL;
+    }
+
+    if (static_cast<UINT64>(size) != expectedBytes)
+    {
+        std::wcerr << L"Size mismatch in " << path << L": expected " << std::dec << expectedBytes
+                   << L" bytes, found " << size << L".\n";
+        return E_INVALIDARG;
+    }
+
     file.seekg(0, std::ios::beg);
 
     contents.resize(static_cast<size_t>(size));
@@ -413,7 +427,14 @@ public:
             return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
         }
 
-        const UINT64 fileBytes = static_cast<UINT64>(m_file.tellg());
+        const std::streamoff size = m_file.tellg();
+        if (size < 0)
+        {
+            std::wcerr << L"Failed to get the size of " << path << L"\n";
+            return E_FAIL;
+        }
+
+        const UINT64 fileBytes = static_cast<UINT64>(size);
         m_frameBytes = frameBytes;
         m_frameCount = static_cast<UINT>(fileBytes / frameBytes);
 
@@ -536,9 +557,17 @@ void PrintUsage()
 
 bool ParseUInt(const wchar_t* text, UINT& value)
 {
+    // wcstoul would accept leading whitespace and a sign ("-1" wraps to 0xFFFFFFFF), so
+    // insist on a plain digit string, and reject values that don't fit.
+    if (*text < L'0' || *text > L'9')
+    {
+        return false;
+    }
+
     wchar_t* end = nullptr;
+    errno = 0;
     const unsigned long parsed = std::wcstoul(text, &end, 10);
-    if (end == text || *end != L'\0')
+    if (*end != L'\0' || errno == ERANGE || parsed > UINT_MAX)
     {
         return false;
     }
@@ -634,7 +663,14 @@ HRESULT ParseCommandLine(const CommandLine& commandLine, Options& options)
 
 std::wstring MakeOutputPath(const std::wstring& base, UINT frameIndex)
 {
-    const size_t extension = base.find_last_of(L'.');
+    // Only a dot in the file name part is an extension; "out.v2/result" has none.
+    const size_t separator = base.find_last_of(L"\\/");
+    const size_t nameStart = (separator == std::wstring::npos) ? 0 : separator + 1;
+    size_t extension = base.find_last_of(L'.');
+    if (extension != std::wstring::npos && extension < nameStart)
+    {
+        extension = std::wstring::npos;
+    }
 
     std::wostringstream stream;
     stream << (extension == std::wstring::npos ? base : base.substr(0, extension))
@@ -880,7 +916,7 @@ HRESULT CheckVideoProcessSupport(ID3D12VideoDevice5* videoDevice,
     RETURN_IF_FAILED(videoDevice->CheckFeatureSupport(D3D12_FEATURE_VIDEO_PROCESS_SUPPORT1,
                                                       &support, sizeof(support)));
 
-    // Dump what the driver reported, so a failed check below can be diagnosed.
+    // Log what the driver reported, so a failed check below can be diagnosed.
     std::wcout << L"LUT support reported by the adapter:\n"
                << L"  SupportLUT.Flags                   = "
                << LutSupportFlagsToString(support.SupportLUT.Flags) << L"\n"
@@ -1179,17 +1215,10 @@ HRESULT UploadLutTables(CommandContext& context, const Options& options, const R
     ComPtr<ID3D12Resource> lut1dUpload;
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT lut1dLayout = {};
     {
+        // lut1dSize RGBA16 entries.
+        const UINT64 expectedBytes = static_cast<UINT64>(options.lut1dSize) * kLutEntryBytes;
         std::vector<BYTE> table;
-        RETURN_IF_FAILED_QUIET(ReadWholeFile(options.lut1dPath, table));
-
-        const size_t expectedBytes = static_cast<size_t>(options.lut1dSize) * kLutEntryBytes;
-        if (table.size() != expectedBytes)
-        {
-            std::wcerr << L"1D LUT size mismatch: expected " << std::dec << expectedBytes
-                       << L" bytes for " << options.lut1dSize << L" RGBA16 entries, got "
-                       << table.size() << L".\n";
-            return E_INVALIDARG;
-        }
+        RETURN_IF_FAILED_QUIET(ReadWholeFile(options.lut1dPath, expectedBytes, table));
 
         const D3D12_RESOURCE_DESC lut1dDesc = resources.lut1d->GetDesc();
         UINT64 stagingBytes = 0;
@@ -1210,19 +1239,11 @@ HRESULT UploadLutTables(CommandContext& context, const Options& options, const R
     ComPtr<ID3D12Resource> lut3dUpload;
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT lut3dLayout = {};
     {
+        // A lut3dSize^3 table of RGBA16 entries.
+        const UINT64 expectedBytes = static_cast<UINT64>(options.lut3dSize) * options.lut3dSize *
+                                     options.lut3dSize * kLutEntryBytes;
         std::vector<BYTE> table;
-        RETURN_IF_FAILED_QUIET(ReadWholeFile(options.lut3dPath, table));
-
-        const size_t entryCount = static_cast<size_t>(options.lut3dSize) * options.lut3dSize *
-                                  options.lut3dSize;
-        const size_t expectedBytes = entryCount * kLutEntryBytes;
-        if (table.size() != expectedBytes)
-        {
-            std::wcerr << L"3D LUT size mismatch: expected " << std::dec << expectedBytes
-                       << L" bytes for a " << options.lut3dSize << L"^3 RGBA16 table, got "
-                       << table.size() << L".\n";
-            return E_INVALIDARG;
-        }
+        RETURN_IF_FAILED_QUIET(ReadWholeFile(options.lut3dPath, expectedBytes, table));
 
         const D3D12_RESOURCE_DESC lut3dDesc = resources.lut3d->GetDesc();
         UINT64 stagingBytes = 0;

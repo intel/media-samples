@@ -30,7 +30,7 @@ This project is intended as a reference implementation for developers integratin
 The whole sample is one source file, `D3D12VPBlitLUT.cpp`, split into numbered
 sections that follow the order the work happens in.
 
-## Build requirements
+## Build Requirements
 
 * Windows 10 or 11 with a **D3D12 compatible GPU**.
 * A graphics driver that supports **D3D12 Video Processing with the LUT Compound API**.
@@ -43,15 +43,15 @@ sections that follow the order the work happens in.
 * Internet access on the first configure, if the SDK is downloaded.
 * Optional: the **Graphics Tools** optional Windows feature, for the D3D12 debug layer.
 
-### The Agility SDK dependency
+### The Agility SDK Dependency
 
 The LUT Compound API is introduced in the Agility SDK v1.620.  `CMakeLists.txt` handles this dependency:
 
-* Downloads the newest stable (non-preview) `Microsoft.Direct3D.D3D12` release that is
-  `1.620.0` or newer from NuGet at configure time, unless `AGILITY_SDK_VERSION` pins a
-  specific release or `AGILITY_SDK_ROOT` points at a local copy. The chosen version is
-  remembered for the build tree; configure with `cmake --fresh` (or use a new build
-  directory) to pick up a newer release,
+* Downloads a pinned `Microsoft.Direct3D.D3D12` release (`AGILITY_SDK_DEFAULT_VERSION` in
+  `CMakeLists.txt`) from NuGet at configure time and checks it against the SHA-256 recorded
+  next to it, unless `AGILITY_SDK_VERSION` selects another release or `AGILITY_SDK_ROOT`
+  points at a local copy. The package's `D3D12Core.dll` runs inside the sample's process,
+  which is why the download is verified,
 * Puts its headers ahead of the Windows SDK headers on the include path,
 * Copies `D3D12Core.dll` and `d3d12SDKLayers.dll` into a `D3D12` subfolder next to the
   built executable.
@@ -75,11 +75,20 @@ To build against an SDK you already have already downloaded, point `AGILITY_SDK_
 cmake -S . -B build -DAGILITY_SDK_ROOT=C:/path/to/Microsoft.Direct3D.D3D12.1.620.0
 ```
 
-To pin a specific release instead of the newest one, set the version (optionally with
-`AGILITY_SDK_SHA256` to verify the download):
+To build against a different release, set the version and its hash (from
+`cmake -E sha256sum` on the package). Without a hash the download still works, but is not
+verified, and configure prints a warning with the hash to pin:
 
 ```
-cmake -S . -B build -DAGILITY_SDK_VERSION=1.620.1
+cmake -S . -B build -DAGILITY_SDK_VERSION=1.620.1 -DAGILITY_SDK_SHA256=<sha256>
+```
+
+To use the newest stable (non-preview) release that is `1.620.0` or newer, set the version
+to `latest`. The resolved version is remembered for the build tree; configure with
+`cmake --fresh` (or use a new build directory) to pick up a newer release:
+
+```
+cmake -S . -B build -DAGILITY_SDK_VERSION=latest
 ```
 
 ## Building
@@ -98,15 +107,15 @@ Useful CMake options:
 | Option | Default | Effect |
 | ------ | ------- | ------ |
 | `D3D12VPBLITLUT_WARNINGS_AS_ERRORS` | `OFF` | `/WX` on MSVC, `-Werror` on Clang. |
-| `AGILITY_SDK_VERSION` | empty | NuGet package version to download; empty picks the newest stable release >= `1.620.0`. |
-| `AGILITY_SDK_SHA256` | empty | Expected package hash; empty skips verification. Requires `AGILITY_SDK_VERSION`. |
+| `AGILITY_SDK_VERSION` | the pinned release | NuGet package version to download, or `latest` for the newest stable release >= `1.620.0`. |
+| `AGILITY_SDK_SHA256` | empty | Expected package hash. Empty uses the built-in hash for the pinned release, and skips verification for any other. Not allowed with `latest`. |
 | `AGILITY_SDK_ROOT` | empty | Use an already extracted SDK instead of downloading. |
 
 The build is warning-clean with MSVC `/W4` and with Clang
 `-Wall -Wextra -Wpedantic` (minus the suppressions the Windows SDK headers require,
 which `CMakeLists.txt` applies for you).
 
-## Command line usage
+## Command Line Usage
 
 ```
 D3D12VPBlitLUT.exe -i <input_file>
@@ -140,9 +149,9 @@ D3D12VPBlitLUT.exe -i input_1920x1080_p010.bin ^
 This writes `out/result_frame_000.bin`, `out/result_frame_001.bin`, and so on — one raw
 NV12 frame per file.
 
-## Input and output
+## Input and Output
 
-### Input video
+### Input Video
 
 | Item | Value |
 | ---- | ----- |
@@ -183,7 +192,7 @@ unused. The 3D LUT is stored with the red axis varying fastest, then green, then
 The sample checks each file's size against the requested dimensions and against the
 adapter's native 1D LUT size before uploading.
 
-### Output video
+### Output Video
 
 | Item | Value |
 | ---- | ----- |
@@ -221,4 +230,4 @@ code and will need work before being integrated into a real application.
 * [`Microsoft.Direct3D.D3D12` on NuGet](https://www.nuget.org/packages/Microsoft.Direct3D.D3D12/)
 * [D3D12 Video Processing LUT specification](https://github.com/microsoft/DirectX-Specs/blob/master/d3d/D3D12_Video_Processing_LUT.md)
 * [Direct3D 12 video processing overview](https://learn.microsoft.com/en-us/windows/win32/medfound/direct3d-12-video-overview)
-* [DXGI colour space reference](https://learn.microsoft.com/en-us/windows/win32/api/dxgicommon/ne-dxgicommon-dxgi_color_space_type)
+* [DXGI color space reference](https://learn.microsoft.com/en-us/windows/win32/api/dxgicommon/ne-dxgicommon-dxgi_color_space_type)
