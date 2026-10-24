@@ -304,8 +304,6 @@ add_custom_command(TARGET D3D12VPBlitLUT POST_BUILD
             "$<TARGET_FILE_DIR:D3D12VPBlitLUT>"
     COMMENT "Staging Agility SDK redistributable and sample LUTs")
 
-# The input clip is not redistributable (see .gitignore), so stage it only when a local
-# copy sits next to this file.
 set(sample_input_clip "${CMAKE_CURRENT_SOURCE_DIR}/input_1920x1080_p010.bin")
 if(EXISTS "${sample_input_clip}")
     add_custom_command(TARGET D3D12VPBlitLUT POST_BUILD
