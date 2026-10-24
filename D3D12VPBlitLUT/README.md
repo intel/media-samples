@@ -153,6 +153,8 @@ NV12 frame per file.
 
 ### Input Video
 
+Sample input video provided is input_1920x1080_p010.bin.
+
 | Item | Value |
 | ---- | ----- |
 | Format | Raw **P010**, no container and no header |
@@ -163,20 +165,6 @@ NV12 frame per file.
 
 The file is read as a sequence of complete frames; the frame count is just the file size
 divided by the frame size, and any trailing partial frame is ignored.
-
-**No input clip ships with this sample** — we cannot redistribute video content here. Any
-1080p P010 file works, and you can produce one from any clip you already have with
-[FFmpeg](https://ffmpeg.org/):
-
-```
-ffmpeg -i your_clip.mp4 -frames:v 10 -s 1920x1080 -pix_fmt p010le -f rawvideo input_1920x1080_p010.bin
-```
-
-Or generate a synthetic test pattern with no source clip at all:
-
-```
-ffmpeg -f lavfi -i testsrc2=size=1920x1080:rate=30 -frames:v 10 -pix_fmt p010le -f rawvideo input_1920x1080_p010.bin
-```
 
 ### LUT tables
 
