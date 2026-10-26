@@ -107,6 +107,7 @@ Useful CMake options:
 | Option | Default | Effect |
 | ------ | ------- | ------ |
 | `D3D12VPBLITLUT_WARNINGS_AS_ERRORS` | `OFF` | `/WX` on MSVC, `-Werror` on Clang. |
+| `D3D12VPBLITLUT_BUILD_FUZZERS` | `OFF` | Also build the libFuzzer targets; see [Fuzzing](#fuzzing). |
 | `AGILITY_SDK_VERSION` | the pinned release | NuGet package version to download, or `latest` for the newest stable release >= `1.620.0`. |
 | `AGILITY_SDK_SHA256` | empty | Expected package hash. Empty uses the built-in hash for the pinned release, and skips verification for any other. Not allowed with `latest`. |
 | `AGILITY_SDK_ROOT` | empty | Use an already extracted SDK instead of downloading. |
@@ -114,6 +115,44 @@ Useful CMake options:
 The build is warning-clean with MSVC `/W4` and with Clang
 `-Wall -Wextra -Wpedantic` (minus the suppressions the Windows SDK headers require,
 which `CMakeLists.txt` applies for you).
+
+## Fuzzing
+
+The `fuzz/` folder has two [libFuzzer](https://llvm.org/docs/LibFuzzer.html) targets for
+the sample's input handling. Each one compiles `D3D12VPBlitLUT.cpp` itself, with `main()`
+left out, so it exercises the sample's own code. Neither creates a D3D12 device, so no GPU
+is needed.
+
+| Target | Covers |
+| ------ | ------ |
+| `fuzz_command_line` | Command line parsing, then the 3D LUT size check and output file naming for every command line that parses. The input is one argument per line, in UTF-8. |
+| `fuzz_input_files` | Reading the LUT files and the input video: size validation, frame counting and frame reads. |
+
+The sample never looks at the contents of the video frames or LUT tables on the CPU; it
+hands them to the GPU as they are. So `fuzz_input_files` covers how the files are
+read, and how the driver handles odd frame or LUT data is out of its reach.
+
+The targets build with MSVC or clang-cl, for x64. Release builds run fastest:
+
+```
+cmake -S . -B build -DD3D12VPBLITLUT_BUILD_FUZZERS=ON
+cmake --build build --config Release --target fuzz_command_line fuzz_input_files
+```
+
+Run them from the build folder. libFuzzer adds new inputs to the first folder on the
+command line, so keep that one in the build tree and pass the checked-in seeds after it:
+
+```
+cd build\fuzz
+mkdir corpus\command_line corpus\input_files
+Release\fuzz_command_line.exe -dict=..\..\fuzz\command_line.dict -max_total_time=600 ^
+    corpus\command_line ..\..\fuzz\corpus\command_line
+Release\fuzz_input_files.exe -max_total_time=600 corpus\input_files
+```
+
+Add `-close_fd_mask=2` to hide the sample's own error messages while fuzzing. A crash or
+broken invariant saves the input as `crash-<hash>`. To reproduce it, pass that file as the
+only argument, without `-close_fd_mask`, so the `Invariant violated:` message is shown.
 
 ## Command Line Usage
 

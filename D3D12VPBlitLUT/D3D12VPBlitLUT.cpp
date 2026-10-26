@@ -67,10 +67,15 @@
 //
 // Note that preview releases of the Agility SDK are only loaded when Windows Developer
 // Mode is enabled; without it, device creation fails.
+//
+// The fuzz targets in fuzz/ compile this file with D3D12VPBLITLUT_FUZZING defined, which
+// leaves out these exports and main(); they never create a device.
 //---------------------------------------------------------------------------------------
 
+#if !defined(D3D12VPBLITLUT_FUZZING)
 extern "C" { __declspec(dllexport) extern const UINT D3D12SDKVersion = D3D12_SDK_VERSION; }
 extern "C" { __declspec(dllexport) extern const char* D3D12SDKPath = u8".\\D3D12\\"; }
+#endif
 
 namespace {
 
@@ -514,7 +519,7 @@ public:
     CommandLine& operator=(const CommandLine&) = delete;
 
     int Count() const { return m_argc; }
-    const wchar_t* operator[](int index) const { return m_argv[index]; }
+    const wchar_t* const* Arguments() const { return m_argv; }
 
 private:
     int m_argc = 0;
@@ -576,12 +581,13 @@ bool ParseUInt(const wchar_t* text, UINT& value)
     return true;
 }
 
-HRESULT ParseCommandLine(const CommandLine& commandLine, Options& options)
+// arguments[0] is the program name, as in argv.
+HRESULT ParseCommandLine(int argumentCount, const wchar_t* const* arguments, Options& options)
 {
-    for (int i = 1; i < commandLine.Count(); ++i)
+    for (int i = 1; i < argumentCount; ++i)
     {
-        const wchar_t* argument = commandLine[i];
-        const bool hasValue = (i + 1) < commandLine.Count();
+        const wchar_t* argument = arguments[i];
+        const bool hasValue = (i + 1) < argumentCount;
 
         if (std::wcscmp(argument, L"-debuglayer") == 0)
         {
@@ -601,7 +607,7 @@ HRESULT ParseCommandLine(const CommandLine& commandLine, Options& options)
             return E_INVALIDARG;
         }
 
-        const wchar_t* value = commandLine[++i];
+        const wchar_t* value = arguments[++i];
         bool parsed = true;
 
         if (std::wcscmp(argument, L"-i") == 0)
@@ -1523,6 +1529,7 @@ HRESULT Run(const Options& options)
 
 } // namespace
 
+#if !defined(D3D12VPBLITLUT_FUZZING)
 int main()
 {
     const CommandLine commandLine;
@@ -1532,7 +1539,7 @@ int main()
     options.enableDebugLayer = true;
 #endif
 
-    if (FAILED(ParseCommandLine(commandLine, options)))
+    if (FAILED(ParseCommandLine(commandLine.Count(), commandLine.Arguments(), options)))
     {
         PrintUsage();
         return EXIT_FAILURE;
@@ -1545,3 +1552,4 @@ int main()
 
     return SUCCEEDED(hr) ? EXIT_SUCCESS : EXIT_FAILURE;
 }
+#endif

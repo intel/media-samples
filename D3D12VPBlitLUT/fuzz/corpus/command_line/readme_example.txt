@@ -1,0 +1,12 @@
+-i
+input_1920x1080_p010.bin
+-lut1d
+lut1d_identity_1024.dat
+-lut1dsize
+1024
+-lut3d
+lut3d_65x65x65.dat
+-lut3dsize
+65
+-o
+out/result

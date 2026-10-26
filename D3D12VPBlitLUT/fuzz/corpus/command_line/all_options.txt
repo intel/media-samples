@@ -1,0 +1,15 @@
+-debuglayer
+-adapter
+1
+-i
+clips\in.v2\input.bin
+-lut1d
+luts/lut1d.dat
+-lut1dsize
+256
+-lut3d
+luts/lut3d.dat
+-lut3dsize
+17
+-o
+out.v2\result.nv12

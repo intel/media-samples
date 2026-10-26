@@ -219,6 +219,7 @@ message(STATUS "Agility SDK: ${agility_root} (${agility_bin_dir})")
 #---------------------------------------------------------------------------------------
 
 option(D3D12VPBLITLUT_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
+option(D3D12VPBLITLUT_BUILD_FUZZERS "Build the libFuzzer targets in fuzz/ (MSVC or clang-cl, x64)" OFF)
 
 add_executable(D3D12VPBlitLUT D3D12VPBlitLUT.cpp)
 
@@ -311,4 +312,12 @@ if(EXISTS "${sample_input_clip}")
                 "${sample_input_clip}"
                 "$<TARGET_FILE_DIR:D3D12VPBlitLUT>"
         COMMENT "Staging sample input clip")
+endif()
+
+#---------------------------------------------------------------------------------------
+# Fuzzing
+#---------------------------------------------------------------------------------------
+
+if(D3D12VPBLITLUT_BUILD_FUZZERS)
+    add_subdirectory(fuzz)
 endif()
