@@ -486,6 +486,7 @@ struct Options
     UINT lut3dSize = 0;
     UINT adapterIndex = kAutoSelectAdapter;
     bool enableDebugLayer = false;
+    bool tetrahedral = false;
 };
 
 // Windows hands main() its arguments in the active code page, which cannot represent
@@ -530,7 +531,8 @@ void PrintUsage()
            L"Usage:\n"
            L"  D3D12VPBlitLUT.exe -i <input.bin> -lut1d <file> -lut1dsize <n>\n"
            L"                     -lut3d <file> -lut3dsize <17|33|45|65>\n"
-           L"                     [-o <output_base>] [-adapter <index>] [-debuglayer]\n"
+           L"                     [-o <output_base>] [-adapter <index>]\n"
+           L"                     [-interpmethod <trilinear|tetrahedral>] [-debuglayer]\n"
            L"\n"
            L"Required:\n"
            L"  -i <file>            Raw P010 input, 1920x1080, one frame after another.\n"
@@ -544,6 +546,8 @@ void PrintUsage()
            L"                       Frames are written as <base>_frame_NNN.bin\n"
            L"  -adapter <index>     Adapter to use, as listed at startup. Default: the first\n"
            L"                       hardware adapter.\n"
+           L"  -interpmethod <m>    3D LUT interpolation: trilinear or tetrahedral.\n"
+           L"                       Default: trilinear\n"
            L"  -debuglayer          Enable the D3D12 debug layer (on by default in Debug\n"
            L"                       builds).\n"
            L"\n"
@@ -631,6 +635,21 @@ HRESULT ParseCommandLine(const CommandLine& commandLine, Options& options)
         else if (std::wcscmp(argument, L"-adapter") == 0)
         {
             parsed = ParseUInt(value, options.adapterIndex);
+        }
+        else if (std::wcscmp(argument, L"-interpmethod") == 0)
+        {
+            if (std::wcscmp(value, L"trilinear") == 0)
+            {
+                options.tetrahedral = false;
+            }
+            else if (std::wcscmp(value, L"tetrahedral") == 0)
+            {
+                options.tetrahedral = true;
+            }
+            else
+            {
+                parsed = false;
+            }
         }
         else
         {
@@ -781,10 +800,18 @@ struct Lut3DParameters
     D3D12_VIDEO_PROCESS_3DLUT_INTERPOLATION_MODE_SUPPORT_FLAGS interpolationModeFlag;
 };
 
-HRESULT Resolve3DLutParameters(UINT edgeLength, Lut3DParameters& resolved)
+HRESULT Resolve3DLutParameters(UINT edgeLength, bool tetrahedral, Lut3DParameters& resolved)
 {
-    resolved.interpolationMode = D3D12_VIDEO_PROCESS_3DLUT_INTERPOLATION_MODE_TRILINEAR;
-    resolved.interpolationModeFlag = D3D12_VIDEO_PROCESS_3DLUT_INTERPOLATION_MODE_SUPPORT_FLAG_TRILINEAR;
+    if (tetrahedral)
+    {
+        resolved.interpolationMode = D3D12_VIDEO_PROCESS_3DLUT_INTERPOLATION_MODE_TETRAHEDRAL;
+        resolved.interpolationModeFlag = D3D12_VIDEO_PROCESS_3DLUT_INTERPOLATION_MODE_SUPPORT_FLAG_TETRAHEDRAL;
+    }
+    else
+    {
+        resolved.interpolationMode = D3D12_VIDEO_PROCESS_3DLUT_INTERPOLATION_MODE_TRILINEAR;
+        resolved.interpolationModeFlag = D3D12_VIDEO_PROCESS_3DLUT_INTERPOLATION_MODE_SUPPORT_FLAG_TRILINEAR;
+    }
 
     switch (edgeLength)
     {
@@ -961,7 +988,8 @@ HRESULT CheckVideoProcessSupport(ID3D12VideoDevice5* videoDevice,
     // Check 3DLUT Interpolation Mode
     if (!(lut3d.interpolationModeFlag & support.SupportLUT.Interpolation3DLUTFlags))
     {
-        std::wcerr << L"Requested 3D LUT interpolation mode " << "TRILINEAR" 
+        std::wcerr << L"Requested 3D LUT interpolation mode "
+            << (options.tetrahedral ? L"TETRAHEDRAL" : L"TRILINEAR")
             << L" is not supported.\n";
         return DXGI_ERROR_UNSUPPORTED;
     }
@@ -1464,7 +1492,7 @@ HRESULT ReadbackFrame(CommandContext& context, const Resources& resources,
 HRESULT Run(const Options& options)
 {
     Lut3DParameters lut3d = {};
-    RETURN_IF_FAILED_QUIET(Resolve3DLutParameters(options.lut3dSize, lut3d));
+    RETURN_IF_FAILED_QUIET(Resolve3DLutParameters(options.lut3dSize, options.tetrahedral, lut3d));
 
     FrameReader reader;
     RETURN_IF_FAILED_QUIET(reader.Open(options.inputPath, kInputFrameBytes));

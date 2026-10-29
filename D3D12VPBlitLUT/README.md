@@ -15,7 +15,7 @@ For every frame it:
 2. Calls `ProcessFrames2` once, which performs three operations in a single pass:
    * a **CSC** (colour space conversion) matrix — BT.2020 limited-range YCbCr → RGB,
    * a **1D LUT** (RGBA16) — a per-channel transfer curve,
-   * a **3D LUT** (RGBA16, trilinear interpolation) — a full colour cube, for example an
+   * a **3D LUT** (RGBA16, trilinear or tetrahedral interpolation) — a full colour cube, for example an
      HDR-to-SDR conversion.
 3. Reads the **NV12** result back and writes it to disk as a raw frame.
 
@@ -121,7 +121,8 @@ which `CMakeLists.txt` applies for you).
 D3D12VPBlitLUT.exe -i <input_file>
                    -lut1d <1d_lut_file> -lut1dsize <size>
                    -lut3d <3d_lut_file> -lut3dsize <17|33|45|65>
-                   [-o <output_base>] [-adapter <index>] [-debuglayer]
+                   [-o <output_base>] [-adapter <index>]
+                   [-interpmethod <trilinear|tetrahedral>] [-debuglayer]
 ```
 
 | Option | Required | Description |
@@ -133,6 +134,7 @@ D3D12VPBlitLUT.exe -i <input_file>
 | `-lut3dsize <n>` | yes | 3D LUT edge length: 17, 33, 45 or 65. |
 | `-o <output_base>` | no | Output name stem. Defaults to `output_1920x1080`. |
 | `-adapter <index>` | no | Adapter to use, by index as listed at startup. Defaults to the first hardware adapter. |
+| `-interpmethod <m>` | no | 3D LUT interpolation method: `trilinear` or `tetrahedral`. Defaults to `trilinear`. The adapter must report support for the chosen method, which the sample prints at startup. |
 | `-debuglayer` | no | Enable the D3D12 debug layer. On by default in `Debug` and `RelWithDebInfo` builds. |
 
 ### Example

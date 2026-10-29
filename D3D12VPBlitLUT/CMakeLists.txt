@@ -49,8 +49,8 @@ endif()
 set(AGILITY_SDK_MIN_VERSION "1.620.0")
 
 # The pinned default. Get the hash with `cmake -E sha256sum` on the downloaded package.
-set(AGILITY_SDK_DEFAULT_VERSION "1.620.0")
-set(AGILITY_SDK_DEFAULT_SHA256 "")  # TODO: fill in once 1.620.0 is published on NuGet.
+set(AGILITY_SDK_DEFAULT_VERSION "1.620.1")
+set(AGILITY_SDK_DEFAULT_SHA256 "a8a494c3e5f687d9be0a465ec8248da70781ab689d888db8806b600422722be6")
 
 set(AGILITY_SDK_VERSION "${AGILITY_SDK_DEFAULT_VERSION}" CACHE STRING
     "Microsoft.Direct3D.D3D12 NuGet package version to build against, or \"latest\" for the newest stable release >= ${AGILITY_SDK_MIN_VERSION}")
@@ -95,8 +95,8 @@ function(agility_sdk_resolve_latest out_var)
     else()
         message(WARNING
             "Could not determine the latest Agility SDK release from ${index_url}; "
-            "falling back to ${AGILITY_SDK_MIN_VERSION}.")
-        set(best "${AGILITY_SDK_MIN_VERSION}")
+            "falling back to ${AGILITY_SDK_DEFAULT_VERSION}.")
+        set(best "${AGILITY_SDK_DEFAULT_VERSION}")
     endif()
     set(${out_var} "${best}" PARENT_SCOPE)
 endfunction()
